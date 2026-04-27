@@ -55,27 +55,20 @@ class MultiCoupon extends AbstractTotal
 
         $items = $shippingAssignment->getItems();
 
-        $this->logger->error('Merlin MultiCoupon collect start', [
-            'quote_id' => $quote->getId(),
-            'codes' => $this->quoteCouponStorage->getCodes($quote),
-            'items_count' => is_array($items) ? count($items) : 0,
-            'grand_total_before' => $total->getGrandTotal(),
-            'base_grand_total_before' => $total->getBaseGrandTotal()
-        ]);
-
         if (!$items || !$quote->getItemsCount()) {
-            $this->logger->error('Merlin MultiCoupon collect aborted: no items', [
-                'quote_id' => $quote->getId(),
-                'quote_items_count' => $quote->getItemsCount()
-            ]);
             return $this;
         }
 
         $codes = $this->quoteCouponStorage->getCodes($quote);
         if (!$codes) {
-            $this->logger->error('Merlin MultiCoupon collect aborted: no codes on quote', [
-                'quote_id' => $quote->getId()
-            ]);
+            return $this;
+        }
+
+        $codes = $this->getRetainedCodesForItems($quote, $items, $codes);
+        $quote->setData(QuoteCouponStorage::FIELD, implode(',', $codes));
+
+        if (!$codes) {
+            $quote->setAppliedRuleIds('');
             return $this;
         }
 
@@ -91,25 +84,7 @@ class MultiCoupon extends AbstractTotal
                 continue;
             }
 
-            $this->logger->error('Merlin MultiCoupon item loop', [
-                'quote_id' => $quote->getId(),
-                'item_id' => $item->getId(),
-                'sku' => $item->getSku(),
-                'qty' => $item->getQty(),
-                'base_row_total' => $item->getBaseRowTotal(),
-                'base_row_total_incl_tax' => $item->getBaseRowTotalInclTax(),
-                'row_total' => $item->getRowTotal(),
-                'row_total_incl_tax' => $item->getRowTotalInclTax()
-            ]);
-
             $best = $this->getBestDiscountForItem($quote, $item, $codes);
-
-            $this->logger->error('Merlin MultiCoupon best result for item', [
-                'quote_id' => $quote->getId(),
-                'item_id' => $item->getId(),
-                'sku' => $item->getSku(),
-                'best' => $best
-            ]);
 
             if ($best['base_amount'] <= 0.0001) {
                 continue;
@@ -134,15 +109,8 @@ class MultiCoupon extends AbstractTotal
             }
         }
 
-        $this->logger->error('Merlin MultiCoupon totals after item loop', [
-            'quote_id' => $quote->getId(),
-            'base_discount_total' => $baseDiscountTotal,
-            'discount_total' => $discountTotal,
-            'applied_codes' => array_values($appliedCodes),
-            'applied_rule_ids' => array_values($appliedRuleIds)
-        ]);
-
         if ($baseDiscountTotal <= 0.0001 && $discountTotal <= 0.0001) {
+            $quote->setAppliedRuleIds('');
             return $this;
         }
 
@@ -163,23 +131,7 @@ class MultiCoupon extends AbstractTotal
         }
 
         $quote->setData(QuoteCouponStorage::FIELD, implode(',', $codes));
-
-        $existingRuleIds = trim((string)$quote->getAppliedRuleIds());
-        $mergedRuleIds = array_filter(array_unique(array_merge(
-            $existingRuleIds !== '' ? explode(',', $existingRuleIds) : [],
-            array_map('strval', array_values($appliedRuleIds))
-        )));
-        $quote->setAppliedRuleIds(implode(',', $mergedRuleIds));
-
-        $this->logger->error('Merlin MultiCoupon collect applied totals', [
-            'quote_id' => $quote->getId(),
-            'total_code' => $this->getCode(),
-            'discount_total_amount' => $total->getTotalAmount($this->getCode()),
-            'base_discount_total_amount' => $total->getBaseTotalAmount($this->getCode()),
-            'discount_amount_field' => $total->getDiscountAmount(),
-            'base_discount_amount_field' => $total->getBaseDiscountAmount(),
-            'quote_applied_rule_ids' => $quote->getAppliedRuleIds()
-        ]);
+        $quote->setAppliedRuleIds(implode(',', array_map('strval', array_values($appliedRuleIds))));
 
         return $this;
     }
@@ -195,12 +147,6 @@ class MultiCoupon extends AbstractTotal
     {
         $codes = $this->quoteCouponStorage->getCodes($quote);
         $discountAmount = (float)$total->getTotalAmount($this->getCode());
-
-        $this->logger->error('Merlin MultiCoupon fetch', [
-            'quote_id' => $quote->getId(),
-            'codes' => $codes,
-            'discount_amount' => $discountAmount
-        ]);
 
         if (!$codes || abs($discountAmount) < 0.0001) {
             return [];
@@ -231,15 +177,68 @@ class MultiCoupon extends AbstractTotal
         $total->setTotalAmount($this->getCode(), 0.0);
         $total->setBaseTotalAmount($this->getCode(), 0.0);
 
+        foreach ($items as $item) {
+            if ($item->getParentItem()) {
+                continue;
+            }
+
+            $item->setDiscountAmount(0.0);
+            $item->setBaseDiscountAmount(0.0);
+            $item->setOriginalDiscountAmount(0.0);
+            $item->setBaseOriginalDiscountAmount(0.0);
+        }
+
         $shipping = $shippingAssignment->getShipping();
         $address = $shipping ? $shipping->getAddress() : null;
         if ($address instanceof Address) {
+            $address->setDiscountAmount(0.0);
+            $address->setBaseDiscountAmount(0.0);
             $address->setDiscountDescription(null);
         }
     }
 
     /**
+     * Retain only codes that are currently the winning code for at least one item.
+     *
+     * This matches the actual pricing engine behaviour and prevents stale overlap
+     * codes from lingering after basket changes.
+     *
+     * @param Quote $quote
+     * @param AbstractItem[] $items
+     * @param string[] $codes
+     * @return string[]
+     */
+    private function getRetainedCodesForItems(Quote $quote, array $items, array $codes): array
+    {
+        $retained = [];
+
+        foreach ($items as $item) {
+            if ($item->getParentItem()) {
+                continue;
+            }
+
+            $best = $this->getBestDiscountForItem($quote, $item, $codes);
+
+            if ($best['code'] !== '') {
+                $retained[$best['code']] = $best['code'];
+            }
+        }
+
+        $ordered = [];
+        foreach ($codes as $code) {
+            if (isset($retained[$code])) {
+                $ordered[] = $code;
+            }
+        }
+
+        return array_values(array_unique($ordered));
+    }
+
+       /**
      * Return the best applicable discount result for a single quote item.
+     *
+     * OFFER codes take precedence over DEAL codes on the same item.
+     * Within the same code class, the higher discount wins.
      *
      * @param Quote $quote
      * @param AbstractItem $item
@@ -248,55 +247,39 @@ class MultiCoupon extends AbstractTotal
      */
     private function getBestDiscountForItem(Quote $quote, AbstractItem $item, array $codes): array
     {
-        $best = ['code' => '', 'rule_id' => 0, 'base_amount' => 0.0, 'amount' => 0.0];
+        $best = [
+            'code' => '',
+            'rule_id' => 0,
+            'base_amount' => 0.0,
+            'amount' => 0.0,
+            'priority' => -1,
+        ];
+
         $storeBaseToQuoteRate = (float)$quote->getBaseToQuoteRate() ?: 1.0;
 
         foreach ($codes as $code) {
             $rule = $this->ruleRepository->getRuleByCode($quote, $code);
 
-            $this->logger->error('Merlin MultiCoupon rule lookup', [
-                'quote_id' => $quote->getId(),
-                'item_id' => $item->getId(),
-                'sku' => $item->getSku(),
-                'code' => $code,
-                'rule_found' => (bool)$rule,
-                'rule_id' => $rule ? $rule->getId() : null,
-                'simple_action' => $rule ? $rule->getSimpleAction() : null,
-                'discount_amount' => $rule ? $rule->getDiscountAmount() : null
-            ]);
-
             if (!$rule) {
                 continue;
             }
 
-            $matched = $this->itemRuleMatcher->isMatch($item, $rule);
-
-            $this->logger->error('Merlin MultiCoupon match result', [
-                'quote_id' => $quote->getId(),
-                'item_id' => $item->getId(),
-                'sku' => $item->getSku(),
-                'code' => $code,
-                'rule_id' => (int)$rule->getId(),
-                'matched' => $matched
-            ]);
-
-            if (!$matched) {
+            if (!$this->itemRuleMatcher->isMatch($item, $rule)) {
                 continue;
             }
 
             $baseAmount = $this->calculator->calculate($item, $rule);
+            if ($baseAmount <= 0.0001) {
+                continue;
+            }
 
-            $this->logger->error('Merlin MultiCoupon calculated amount', [
-                'quote_id' => $quote->getId(),
-                'item_id' => $item->getId(),
-                'sku' => $item->getSku(),
-                'code' => $code,
-                'rule_id' => (int)$rule->getId(),
-                'base_amount' => $baseAmount,
-                'quote_amount' => $baseAmount * $storeBaseToQuoteRate
-            ]);
+            $priority = str_starts_with($code, 'OFFER-') ? 1 : 0;
 
-            if ($baseAmount <= $best['base_amount']) {
+            $isBetter =
+                $priority > $best['priority']
+                || ($priority === $best['priority'] && $baseAmount > $best['base_amount']);
+
+            if (!$isBetter) {
                 continue;
             }
 
@@ -305,9 +288,15 @@ class MultiCoupon extends AbstractTotal
                 'rule_id' => (int)$rule->getId(),
                 'base_amount' => $baseAmount,
                 'amount' => $baseAmount * $storeBaseToQuoteRate,
+                'priority' => $priority,
             ];
         }
 
-        return $best;
+        return [
+            'code' => $best['code'],
+            'rule_id' => $best['rule_id'],
+            'base_amount' => $best['base_amount'],
+            'amount' => $best['amount'],
+        ];
     }
 }
