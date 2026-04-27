@@ -1,396 +1,310 @@
-Merlin_MultiCoupon
+# Merlin_MultiCoupon
 
-Magento 2 module to allow a controlled set of coupon codes to be used together in a single cart, with each code applying only to the products it is valid for.
+Magento 2 extension that allows multiple coupon codes to be stored on the same quote and applied safely across different products in one basket.
 
-This module was built for the DEAL coupon family:
+This module was built for mixed-product baskets where different products may carry different approved discount codes, such as:
 
-DEAL5
+- `DEAL5`
+- `DEAL10`
+- `DEAL15`
+- `DEAL20`
+- `DEAL25`
+- `OFFER-XXXX-XXXX-XXXX-XXXX`
 
-DEAL10
+It supports both standard fixed deal codes and accepted-offer coupon codes, while preventing unintended stacking on the same product.
 
-DEAL15
+---
 
-DEAL20
+## Features
 
-DEAL25
+- Apply multiple approved coupon codes to a single quote
+- Support fixed deal codes:
+  - `DEAL5`
+  - `DEAL10`
+  - `DEAL15`
+  - `DEAL20`
+  - `DEAL25`
+- Support accepted-offer coupon codes using the `OFFER-...` pattern
+- Allow different codes to apply to different products in the same basket
+- Prevent double-discounting of the same product
+- Automatically retain only winning/active codes after totals recollection
+- Automatically remove stale codes when the related product is removed from the basket
+- Allow product-page code application
+- Allow cart-page multi-code management
+- Remove Magento’s default single-coupon cart box and replace it with the multi-code interface
+- Show available discount code on eligible product pages
+- Allow accepted-offer codes and deal codes to coexist in one basket when they apply to different products
 
-It replaces the standard single-code cart coupon workflow with a multi-code cart form and applies the best valid matching deal per item.
+---
 
-What this module does
+## Business Rules
 
-Magento natively supports only one coupon code on a quote. This module extends the cart workflow so multiple approved coupon codes can be stored on the quote and processed together.
+### Supported coupon types
+
+The module supports two classes of coupons:
+
+#### 1. Deal codes
+These are fixed, approved codes:
+
+- `DEAL5`
+- `DEAL10`
+- `DEAL15`
+- `DEAL20`
+- `DEAL25`
+
+These are typically tied to products using the `google_promo_code` product attribute.
+
+#### 2. Offer codes
+These are generated accepted-offer coupons in the format:
+
+- `OFFER-XYM2-YV3T-YUIA-9CN0`
+
+These are validated through Magento sales rules and can apply to specific accepted-offer products.
+
+---
+
+## How the discount logic works
+
+### Per-item best-code resolution
+
+The module does **not** apply every stored code to every matching item.
+
+Instead, for each quote item it:
+
+1. finds all currently stored codes that match that item
+2. chooses the single best winner for that item
+3. applies only that one code to that item
+
+This prevents stacked discounts on a single product.
+
+### Offer-code priority
+
+If both an `OFFER-...` code and a `DEAL...` code match the same item:
+
+- the `OFFER-...` code takes priority
+- the `DEAL...` code does not stack on top of it
+
+This allows accepted offers to override standard deal pricing on the specific accepted-offer item.
+
+### Mixed-basket support
+
+Different products can still use different codes in the same basket.
 
 Example:
 
-Product A qualifies for DEAL10
+- Product A uses `OFFER-XYM2-YV3T-YUIA-9CN0`
+- Product B uses `DEAL20`
 
-Product B qualifies for DEAL20
+Both can exist in the same basket at the same time, provided they apply to different items.
 
-The customer can enter both codes and complete checkout in a single order. Each product receives the correct discount for its own matching rule.
+### Automatic stale-code cleanup
 
-Key behaviour
+After cart changes, the extension automatically removes codes that are no longer winners on any current basket item.
 
-Supports multiple coupon codes on one quote
+This prevents cases where:
 
-Restricts usage to approved deal codes only
+- a code was once valid
+- the related product was removed
+- the code would otherwise remain stored on the quote
 
-Rejects codes that do not apply to any current basket item
+---
 
-Prevents duplicate code entry
+## Product page behaviour
 
-Applies the best single matching deal per item
+On eligible product pages, the module shows a product-level discount code block such as:
 
-Persists applied multi-codes to the order
+**Discount Code**  
+`DEAL10 - For an Extra 10% OFF`
 
-Removes Magento’s standard cart coupon box so customers use the multi-code form instead
+Customers can click:
 
-How discounts are applied
+**Apply Discount Code**
 
-For each entered code, the module:
+The product-page flow:
 
-Normalizes the code
+- adds the product to basket if it is not already present
+- does not add the product again if it is already in basket
+- applies the relevant code
+- redirects the customer to the cart page
 
-Confirms the code is allowed
+### Product-page validation
 
-Loads the linked sales rule
+#### DEAL codes
+A `DEAL...` code is only accepted on a product page if it matches the product’s configured `google_promo_code`.
 
-Checks whether the rule applies to at least one visible basket item
+#### OFFER codes
+An `OFFER-...` code is validated using Magento sales-rule matching against the product/quote item.
 
-Stores the code on the quote if applicable
+---
 
-Recollects totals
+## Cart page behaviour
 
-During totals collection, evaluates all stored codes against each item
+The default Magento single-coupon block is removed.
 
-Applies the highest valid discount for that item
+It is replaced with the Merlin multi-code interface, which allows customers to:
 
-This means:
+- enter multiple coupon codes
+- view currently stored codes
+- remove individual codes
+- clear all codes
 
-one item will not be discounted multiple times by overlapping deal codes
+The cart page can store more than one code at a time, but the discount engine still ensures only the correct code wins per item.
 
-different items in the same basket can receive different deal codes
+---
 
-non-applicable codes are rejected at add time with a clear message
+## Code-retention rules
 
-Supported discount types
+A stored code is kept only if it is currently the winning code for at least one quote item.
 
-This module currently supports the following Magento cart price rule action types:
+That means:
 
-by_percent
+- if a code is no longer relevant, it is removed automatically
+- if a code is still winning on at least one item, it remains stored
+- overlapping codes do not both continue to survive unless they each win on at least one separate item
 
-by_fixed
+This is especially important when:
 
-cart_fixed
+- products are removed from basket
+- quantities change
+- an accepted-offer item overlaps with a standard deal code
+- two products share the same deal code and one is later removed
 
-It is intended for straightforward deal-code scenarios where rules are product-based.
+---
 
-Features
-Multi-code cart form
+## Example scenarios
 
-Customers can:
-
-add a code
-
-remove an individual code
-
-clear all codes
-
-Quote and order persistence
-
-The module stores multi-codes in custom fields on:
-
-quote
-
-sales_order
-
-Custom totals collector
-
-A custom quote total processes all stored codes and applies the correct discount amounts to matching items.
-
-Basket applicability validation
-
-Codes are rejected if they do not apply to any product currently in the basket.
-
-Native cart coupon removal
-
-The standard Magento single discount code box is removed from the cart page so customers only use the multi-code workflow.
-
-Module structure
-
-Typical key files:
-
-app/code/Merlin/MultiCoupon/
-├── registration.php
-├── etc/
-│   ├── module.xml
-│   ├── db_schema.xml
-│   ├── di.xml
-│   └── sales.xml
-├── Controller/Cart/
-│   ├── AddCoupon.php
-│   ├── RemoveCoupon.php
-│   └── ClearCoupons.php
-├── Model/
-│   ├── Config.php
-│   ├── QuoteCouponStorage.php
-│   ├── RuleRepository.php
-│   └── Discount/
-│       ├── MultiCoupon.php
-│       ├── ItemRuleMatcher.php
-│       └── Calculator.php
-└── view/frontend/
-    ├── layout/
-    │   └── checkout_cart_index.xml
-    └── templates/
-Requirements
-
-Magento 2.4.x
-
-Existing cart price rules and coupon codes already configured in Magento Admin
-
-Rules created for the supported deal codes
-
-Installation
-
-Copy the module into:
-
-app/code/Merlin/MultiCoupon
-
-Then run:
-
-bin/magento module:enable Merlin_MultiCoupon
-bin/magento setup:upgrade
-bin/magento setup:di:compile
-bin/magento cache:flush
-
-If needed in production mode:
-
-rm -rf generated/code/* generated/metadata/* var/view_preprocessed/*
-bin/magento setup:static-content:deploy -f
-bin/magento cache:flush
-Database changes
-
-This module adds custom storage fields for the multi-coupon string.
-
-Typical fields:
-
-quote.merlin_multi_coupon_codes
-
-sales_order.merlin_multi_coupon_codes
-
-These fields store the applied codes as a comma-separated list, for example:
-
-DEAL10,DEAL20
-Configuration
-
-The module uses an internal allowed-code list for the approved deal coupons.
-
-Typical allowed codes:
-
-DEAL5
-
-DEAL10
-
-DEAL15
-
-DEAL20
-
-DEAL25
-
-Only these codes are accepted by the custom add-code controller.
-
-Cart workflow
-Adding a code
-
-When a customer enters a code:
-
-the code is normalized
-
-the code must be in the allowed list
-
-the related Magento sales rule must load successfully
-
-at least one visible cart item must match the rule
-
-if valid, the code is added to the quote and totals are recollected
-
-Removing a code
-
-An individual stored code can be removed from the quote, then totals are recollected.
-
-Clearing all codes
-
-All stored multi-codes can be removed in one action.
-
-Totals behaviour
-
-The module registers a custom quote total and applies it in the quote totals flow.
-
-Important points:
-
-totals are recollected after code add/remove/clear
-
-the custom collector applies the best valid single code per item
-
-discount amounts are reflected in cart totals
-
-tax behaviour follows the configured rule and item total basis used by the module
-
-Native coupon box removal
-
-The standard Magento cart coupon block is removed via layout XML.
-
-Typical layout removal:
-
-<referenceBlock name="checkout.cart.coupon" remove="true"/>
-
-This ensures customers use the multi-code form instead of Magento’s standard single-code field.
-
-Example scenario
-
+### Scenario 1: Mixed deal codes
 Basket contains:
 
-Product 1 eligible for DEAL10
-
-Product 2 eligible for DEAL20
-
-Customer enters:
-
-DEAL10
-
-DEAL20
+- Product A with `DEAL10`
+- Product B with `DEAL20`
+- Product C with `DEAL25`
 
 Result:
 
-Product 1 receives the DEAL10 discount
+- all three codes can be stored
+- each item uses only its own matching best code
+- totals are calculated per item
 
-Product 2 receives the DEAL20 discount
+### Scenario 2: Offer code and deal code on different products
+Basket contains:
 
-customer completes checkout in one order
+- Product A with accepted offer code `OFFER-...`
+- Product B with `DEAL20`
 
-If the customer enters DEAL25 and no basket item qualifies, the module rejects it with a message such as:
+Result:
 
-Coupon code "DEAL25" does not apply to any products currently in your basket.
-Testing checklist
+- both codes can be stored
+- `OFFER-...` applies to Product A
+- `DEAL20` applies to Product B
 
-Recommended tests:
+### Scenario 3: Offer and deal code overlap on one product
+Basket contains:
 
-Add one product eligible for DEAL10, then add DEAL10
+- Product A with accepted offer code `OFFER-...`
+- Product A also has native `DEAL20`
 
-Add one product eligible for DEAL20, then add DEAL20
+Result:
 
-Add products eligible for different deal codes, then apply both
+- `OFFER-...` wins on Product A
+- `DEAL20` does not stack on that same item
 
-Try to add a valid but non-applicable deal code and confirm rejection
+### Scenario 4: Removing a second shared-code product
+Basket contains:
 
-Remove one code and confirm totals recalculate correctly
+- Product A with `OFFER-...` and native `DEAL20`
+- Product B with `DEAL20`
 
-Clear all codes and confirm totals return to normal
+Result:
 
-Place an order and confirm the stored multi-code field is copied to the order
+- `OFFER-...` wins on Product A
+- `DEAL20` wins on Product B
 
-Known scope
+If Product B is removed:
 
-This module is designed for a controlled multi-deal implementation. It is not intended to be a full generic multi-coupon engine for every Magento coupon scenario.
+- `DEAL20` is no longer a winning code on any item
+- `DEAL20` is removed automatically
+- only `OFFER-...` remains
 
-Current design assumptions:
+---
 
-coupon usage is restricted to approved deal codes
+## Discount calculation rules
 
-rules are product-oriented
+Discounts are calculated per item using the matching Magento sales rule.
 
-best single valid deal is applied per item
+Supported rule action types:
 
-basket applicability is checked when adding codes
+- `by_percent`
+- `by_fixed`
+- `cart_fixed`
 
-Troubleshooting
-Code saves but no discount appears
+For each item, the module calculates the best applicable discount and applies that one only.
 
-Check:
+### VAT handling
 
-the Magento sales rule exists and is active
+The module works with VAT-inclusive product pricing and recalculates totals correctly after discount application.
 
-the code is in the allowed-code list
+Expected calculation model:
 
-the product actually matches the rule
+- product discount is applied at item level
+- VAT reduces accordingly
+- order totals reflect the discounted price correctly
+- grand totals are not double-discounted
 
-totals are being recollected after add/remove/clear
+---
 
-Code is rejected as not allowed
+## Magento compatibility
 
-Check:
+Designed for Magento 2.4.x.
 
-code spelling
+This module was built specifically for a Magento installation where:
 
-allowed-code configuration in the module
+- products use the `google_promo_code` product attribute
+- deal codes are represented as dropdown attribute option values
+- accepted-offer codes are real Magento sales-rule coupons
+- Jet Theme / custom frontend product layouts are in use
 
-normalization logic in Config.php
+---
 
-Code is allowed but rejected as non-applicable
+## Module structure
 
-Check:
+Typical structure:
 
-the current basket contents
-
-the rule actions/conditions
-
-whether the product truly matches the rule in Magento native behaviour
-
-Totals differ from native Magento coupon behaviour
-
-Check:
-
-sales rule action type
-
-tax/discount basis
-
-collector sort order in etc/sales.xml
-
-calculation logic in Model/Discount/Calculator.php
-
-Developer notes
-
-Main classes:
-
-Config.php
-Normalizes codes and controls which codes are allowed
-
-QuoteCouponStorage.php
-Reads/writes stored multi-codes on the quote
-
-RuleRepository.php
-Loads the underlying Magento sales rule for a code
-
-ItemRuleMatcher.php
-Determines whether a quote item matches a rule
-
-Calculator.php
-Calculates discount amount for a matching item/rule pair
-
-MultiCoupon.php
-Custom quote total collector that processes all stored codes
-
-Controller/Cart/AddCoupon.php
-Adds a code only if it is allowed and applies to at least one visible basket item
-
-Controller/Cart/RemoveCoupon.php
-Removes one code and recollects totals
-
-Controller/Cart/ClearCoupons.php
-Clears all codes and recollects totals
-
-Uninstall
-
-To remove the module:
-
-bin/magento module:disable Merlin_MultiCoupon
-
-Then remove the code from:
-
-app/code/Merlin/MultiCoupon
-
-If you also want to remove database fields, create and run a proper schema removal or uninstall script appropriate for your deployment process.
-
-Notes
-
-This module is intended for controlled multi-deal retail promotions where a small number of known coupon codes must work together in one basket without allowing arbitrary coupon stackin
+```text
+app/code/Merlin/MultiCoupon/
+├── Block/
+│   └── Cart/
+│       └── Coupons.php
+├── Controller/
+│   └── Cart/
+│       ├── AddCoupon.php
+│       ├── ClearCoupons.php
+│       └── RemoveCoupon.php
+├── Model/
+│   ├── Config.php
+│   ├── PromoCodeResolver.php
+│   ├── QuoteCouponStorage.php
+│   ├── RuleRepository.php
+│   └── Discount/
+│       ├── Calculator.php
+│       ├── ItemRuleMatcher.php
+│       └── MultiCoupon.php
+├── view/
+│   └── frontend/
+│       ├── layout/
+│       │   ├── catalog_product_view.xml
+│       │   └── checkout_cart_index.xml
+│       ├── templates/
+│       │   ├── cart/
+│       │   │   └── coupons.phtml
+│       │   └── product/
+│       │       └── deal_code.phtml
+│       └── web/
+│           └── css/
+│               └── source/
+│                   └── _module.less
+├── etc/
+│   ├── module.xml
+│   ├── frontend/
+│   └── sales.xml
+└── registration.php
