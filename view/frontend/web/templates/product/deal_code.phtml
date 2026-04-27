@@ -1,0 +1,45 @@
+<?php
+declare(strict_types=1);
+
+$label = $block->getDealCodeLabel();
+$dealCode = $block->getDealCode();
+$product = $block->getProduct();
+$applyUrl = $block->getApplyUrl();
+
+if (!$label || !$dealCode || !$product) {
+    return;
+}
+
+$applyUrl = $block->getApplyUrl();
+?>
+<div class="merlin-dealcode-box" style="margin-top:12px;">
+    <strong><?= $block->escapeHtml(__('Discount Code')) ?>:</strong>
+        <span>
+        <?= $block->escapeHtml($dealCode) ?> - 
+        <?= $block->escapeHtml(__('For an %1', $label)) ?>
+        </span>
+    <br />
+    <?php if ($block->isOfferCouponApplied()): ?>
+        <div class="message message-error" style="margin-top:8px;">
+            <?= $block->escapeHtml(__("Sorry, but we can't apply a DEAL code & your individual offer code at the same time.")) ?>
+        </div>
+    <?php else: ?>
+        <input type="hidden" name="code" value="<?= $block->escapeHtmlAttr($dealCode) ?>"/>
+        <input type="hidden" name="source" value="product_page"/>
+        <input type="hidden" name="product_id" value="<?= (int)$product->getId() ?>"/>
+
+        <button type="button"
+        class="action secondary merlin-apply-deal-button"
+        onclick="(function(btn){
+            var form = btn.closest('form');
+            if (!form) {
+                return;
+            }
+            form.setAttribute('action', '<?= $block->escapeJs($applyUrl) ?>');
+            form.setAttribute('method', 'post');
+            form.submit();
+        })(this);">
+    <?= $block->escapeHtml(__('Apply Discount Code')) ?>
+</button>
+    <?php endif; ?>
+</div>
