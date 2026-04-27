@@ -11,8 +11,8 @@ class Calculator
     /**
      * Calculate the discount amount for an item under the provided sales rule.
      *
-     * This store's sales rules are behaving like Magento's native discount box:
-     * percentage discounts are applied against the row total including tax.
+     * This module is intended to mirror the store's native coupon behaviour,
+     * where percentage discounts are applied against the row total including tax.
      *
      * @param AbstractItem $item
      * @param Rule $rule
