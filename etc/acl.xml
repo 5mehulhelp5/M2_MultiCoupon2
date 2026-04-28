@@ -13,6 +13,17 @@
                         </resource>
                     </resource>
                 </resource>
+
+                <resource id="Merlin_MultiCoupon::codes"
+                          title="Allowed Deal Codes"
+                          sortOrder="901">
+                    <resource id="Merlin_MultiCoupon::codes_save"
+                              title="Save Deal Codes"
+                              sortOrder="10"/>
+                    <resource id="Merlin_MultiCoupon::codes_delete"
+                              title="Delete Deal Codes"
+                              sortOrder="20"/>
+                </resource>
             </resource>
         </resources>
     </acl>
