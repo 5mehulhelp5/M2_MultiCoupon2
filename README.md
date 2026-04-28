@@ -267,6 +267,19 @@ This module was built specifically for a Magento installation where:
 
 ---
 
+v2.3.2 Added backend form to add / edit / delete accepted promo codes.
+
+Important note
+
+Once you add new codes here, they will only work for products if the product’s google_promo_code attribute option text matches the code saved in this table.
+
+So the flow is now:
+
+add code in admin grid, e.g. SPRING10
+set product google_promo_code option to SPRING10
+assign a matching Magento sales rule coupon SPRING10
+your extension will allow and process it
+
 ## Module structure
 
 Typical structure:
