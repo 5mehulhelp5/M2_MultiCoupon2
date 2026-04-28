@@ -12,6 +12,7 @@ This module was built for mixed-product baskets where different products may car
 - `OFFER-XXXX-XXXX-XXXX-XXXX`
 
 It supports both standard fixed deal codes and accepted-offer coupon codes, while preventing unintended stacking on the same product.
+Add's an on and off switch for the module in Configuration / Sales / Merlin Multi Coupon, this enables / disables the product page buttons and cart stacked discounts logic. 
 
 ---
 
@@ -44,7 +45,7 @@ It supports both standard fixed deal codes and accepted-offer coupon codes, whil
 The module supports two classes of coupons:
 
 #### 1. Deal codes
-These are fixed, approved codes:
+These are fixed, approved codes: (This is being changed in the next version removing the hardcoding and letting users add / edit / delete accepted codes.)
 
 - `DEAL5`
 - `DEAL10`
